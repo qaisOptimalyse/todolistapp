@@ -78,11 +78,24 @@ export default function Home() {
     setAiLoading(true);
     try {
       const today = getTodayLocalDateString();
-      const { data, error } = await getSupabase().functions.invoke("API-Callout", {
-        body: { target_date: today },
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase env missing");
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/API-Callout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${supabaseAnonKey}`,
+        },
+        body: JSON.stringify({ target_date: today }),
       });
-      if (error) throw new Error(error.message || "Edge function failed");
-      if (data?.error) throw new Error(data.error);
+      const data = await res.json();
+      console.log("Edge function response:", { ok: res.ok, status: res.status, data });
+
+      if (!res.ok) {
+        throw new Error(data?.error || res.statusText || "Edge function failed");
+      }
       setTasks(Array.isArray(data?.tasks) ? data.tasks : []);
       setThoughts(Array.isArray(data?.thoughts) ? data.thoughts : []);
     } catch (e) {
