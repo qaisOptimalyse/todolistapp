@@ -9,6 +9,20 @@ type Entry = {
   created_at: string;
 };
 
+type Task = {
+  id: string;
+  title: string;
+  description: string | null;
+  estimated_minutes: number | null;
+  status: string;
+};
+
+type Thought = {
+  id: string;
+  content: string;
+  category: string | null;
+};
+
 function getTodayLocalDateString() {
   const now = new Date();
   return now.toISOString().slice(0, 10);
@@ -18,6 +32,11 @@ export default function Home() {
   const [text, setText] = useState("");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [thoughts, setThoughts] = useState<Thought[]>([]);
+  const [panel, setPanel] = useState<"tasks" | "thoughts" | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadEntries() {
@@ -54,6 +73,37 @@ export default function Home() {
     }
   }
 
+  async function loadAiResults() {
+    setAiError(null);
+    setAiLoading(true);
+    try {
+      const today = getTodayLocalDateString();
+      const { data, error } = await getSupabase().functions.invoke("API-Callout", {
+        body: { target_date: today },
+      });
+      if (error) throw new Error(error.message || "Edge function failed");
+      if (data?.error) throw new Error(data.error);
+      setTasks(Array.isArray(data?.tasks) ? data.tasks : []);
+      setThoughts(Array.isArray(data?.thoughts) ? data.thoughts : []);
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "Something went wrong");
+      setTasks([]);
+      setThoughts([]);
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  function handleShowTasks() {
+    setPanel("tasks");
+    loadAiResults();
+  }
+
+  function handleShowThoughts() {
+    setPanel("thoughts");
+    loadAiResults();
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-[#FFF7D6] [background-image:radial-gradient(circle,_#e5d3a0_1px,_transparent_0)] bg-[size:24px_24px]">
       <main className="flex-1 flex justify-center">
@@ -85,6 +135,56 @@ export default function Home() {
         </div>
       </main>
 
+      {panel && (
+        <section className="border-t border-black/10 bg-yellow-50/95 px-6 py-4">
+          <div className="mx-auto max-w-3xl">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-medium text-zinc-700">
+                {panel === "tasks" ? "Tasks" : "Thoughts"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPanel(null)}
+                className="text-xs text-zinc-500 hover:text-zinc-800"
+              >
+                Close
+              </button>
+            </div>
+            {aiLoading ? (
+              <p className="text-sm text-zinc-500">Processing today&apos;s notes…</p>
+            ) : aiError ? (
+              <p className="text-sm text-red-600">{aiError}</p>
+            ) : panel === "tasks" ? (
+              <ul className="space-y-2 text-sm text-zinc-800">
+                {tasks.map((t) => (
+                  <li key={t.id} className="flex items-baseline gap-2">
+                    <span className="text-zinc-500">•</span>
+                    <span>{t.title}</span>
+                    {t.estimated_minutes != null && (
+                      <span className="text-zinc-500">({t.estimated_minutes} min)</span>
+                    )}
+                  </li>
+                ))}
+                {tasks.length === 0 && <li className="text-zinc-500">No tasks extracted yet.</li>}
+              </ul>
+            ) : (
+              <ul className="space-y-2 text-sm text-zinc-800">
+                {thoughts.map((th) => (
+                  <li key={th.id} className="flex items-baseline gap-2">
+                    <span className="text-zinc-500">•</span>
+                    <span>{th.content}</span>
+                    {th.category && (
+                      <span className="text-xs text-zinc-500">[{th.category}]</span>
+                    )}
+                  </li>
+                ))}
+                {thoughts.length === 0 && <li className="text-zinc-500">No thoughts extracted yet.</li>}
+              </ul>
+            )}
+          </div>
+        </section>
+      )}
+
       <footer className="border-t border-black/5 bg-[#FFF7D6]/90 backdrop-blur">
         <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-6 py-4">
           <form onSubmit={handleSubmit} className="flex flex-1 items-center gap-3">
@@ -105,12 +205,14 @@ export default function Home() {
           </form>
           <button
             type="button"
+            onClick={handleShowTasks}
             className="shrink-0 rounded-full border border-zinc-800/70 bg-zinc-900 px-4 py-2 text-xs font-medium uppercase tracking-wide text-yellow-50 shadow-sm hover:bg-zinc-800"
           >
             Show Tasks
           </button>
           <button
             type="button"
+            onClick={handleShowThoughts}
             className="shrink-0 rounded-full border border-zinc-400 bg-yellow-50 px-4 py-2 text-xs font-medium uppercase tracking-wide text-zinc-800 shadow-sm hover:bg-yellow-100"
           >
             Show Thoughts
